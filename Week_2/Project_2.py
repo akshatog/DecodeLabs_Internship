@@ -1,135 +1,148 @@
 """
-Project 2: Data Classification Using AI
+Project 2: Data Classification Using AI (Advanced)
 DecodeLabs — Industrial Training Kit (Batch 2026)
 
-Goal: Build a basic classification model using a small dataset (Iris),
-following the IPO framework from the brief:
-  INPUT   -> load data, scale features
-  PROCESS -> train/test split, K-Nearest Neighbors (KNN)
-  OUTPUT  -> confusion matrix, F1 score (accuracy alone can lie — slide 14)
-
-Spec checklist:
-  [x] Load and understand a dataset       -> load_iris()
-  [x] Split into training and testing sets -> train_test_split(), 80/20, shuffled
-  [x] Apply a simple classification algo   -> KNeighborsClassifier
-  [x] Evaluate properly                    -> confusion matrix + F1, not just accuracy
+Goal: Build a classification model (Iris), with cross-validation, 
+model serialization, visualizations, and model comparison.
 """
 
+import os
+import joblib
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
 from sklearn.datasets import load_iris
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import train_test_split, GridSearchCV
 from sklearn.preprocessing import StandardScaler
 from sklearn.neighbors import KNeighborsClassifier
+from sklearn.tree import DecisionTreeClassifier
 from sklearn.metrics import confusion_matrix, classification_report, f1_score, accuracy_score
 
 
 def load_data():
-    """
-    PHASE: INPUT — Raw Material (the Iris benchmark from the slides)
-    150 samples, 3 classes (setosa/versicolor/virginica), 4 features
-    (sepal length, sepal width, petal length, petal width).
-    """
     iris = load_iris()
-    X = iris.data
-    y = iris.target
-    return X, y, iris.target_names
+    return iris.data, iris.target, iris.target_names
 
 
-def split_and_scale(X, y, test_size=0.2, random_state=42):
-    """
-    PHASE: PROCESS (part 1) — Structural Integrity: The Split
-    Shuffle before splitting to remove order bias (train_test_split does
-    this by default). 80/20 split as shown in the "Full Architecture" slide.
-
-    PHASE: INPUT (part 2) — The Gatekeeper Rule: Scaling
-    KNN is distance-based, so unscaled features (e.g. cm-scale petal length
-    vs. tiny sepal width differences) would bias the distance calculation.
-    StandardScaler transforms every feature to mean=0, variance=1.
-    """
+def split_and_scale(X, y):
     X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=test_size, random_state=random_state, shuffle=True, stratify=y
+        X, y, test_size=0.2, random_state=42, shuffle=True, stratify=y
     )
-
     scaler = StandardScaler()
-    X_train_scaled = scaler.fit_transform(X_train)   # fit ONLY on training data
-    X_test_scaled = scaler.transform(X_test)          # apply same transform to test data
-
+    X_train_scaled = scaler.fit_transform(X_train)
+    X_test_scaled = scaler.transform(X_test)
     return X_train_scaled, X_test_scaled, y_train, y_test, scaler
 
 
-def find_best_k(X_train, y_train, X_test, y_test, max_k=20):
-    """
-    PHASE: PROCESS (part 2) — Tuning the Engine: Choosing 'K'
-    K=1 overfits to noise, very large K underfits and becomes too generic.
-    We scan K values and track error rate to find the 'elbow' — the point
-    of lowest error before it climbs back up.
-    """
-    best_k, best_acc = 1, 0
-    print("K   | Test Accuracy")
-    print("----|--------------")
-    for k in range(1, max_k + 1):
-        model = KNeighborsClassifier(n_neighbors=k)
-        model.fit(X_train, y_train)
-        acc = accuracy_score(y_test, model.predict(X_test))
-        print(f"{k:<3} | {acc:.4f}")
-        if acc > best_acc:
-            best_acc, best_k = acc, k
-    print(f"\nBest K found: {best_k} (accuracy = {best_acc:.4f})\n")
+def find_best_k_cv(X_train, y_train, max_k=20):
+    """Uses GridSearchCV with 5-fold cross validation to find the best K."""
+    print("Running 5-Fold Cross-Validation for KNN...")
+    param_grid = {'n_neighbors': range(1, max_k + 1)}
+    grid = GridSearchCV(KNeighborsClassifier(), param_grid, cv=5, scoring='accuracy')
+    grid.fit(X_train, y_train)
+    
+    best_k = grid.best_params_['n_neighbors']
+    print(f"Best K found via CV: {best_k} (CV Accuracy = {grid.best_score_:.4f})")
+    
+    # Save the Elbow Curve plot
+    plt.figure(figsize=(8, 5))
+    plt.plot(range(1, max_k + 1), grid.cv_results_['mean_test_score'], marker='o', linestyle='dashed')
+    plt.title('KNN: Cross-Validation Accuracy vs. K Value (Elbow Method)')
+    plt.xlabel('Number of Neighbors (K)')
+    plt.ylabel('CV Mean Accuracy')
+    plt.grid(True)
+    plt.savefig('elbow_curve.png')
+    plt.close()
+    print("-> Saved 'elbow_curve.png'")
+    
     return best_k
 
 
-def train_and_evaluate(X_train, X_test, y_train, y_test, target_names, k=5):
-    """
-    PHASE: PROCESS (part 3) — The Workflow: scikit-learn
-      1. INSTANTIATE -> build the model frame
-      2. FIT         -> memorize the training map
-      3. PREDICT     -> apply the learned logic to unseen test data
-
-    PHASE: OUTPUT — Diagnostic Tool: Confusion Matrix + F1 Score
-    Accuracy alone can be an "accuracy mirage" on imbalanced data (slide 14),
-    so we look deeper with a confusion matrix and F1 (harmonic mean of
-    precision and recall).
-    """
+def train_and_evaluate_knn(X_train, X_test, y_train, y_test, target_names, k):
+    print(f"\n--- Training Final KNN Model (K={k}) ---")
     model = KNeighborsClassifier(n_neighbors=k)
     model.fit(X_train, y_train)
     predictions = model.predict(X_test)
-
-    print(f"=== Results with K={k} ===\n")
-
-    print("Confusion Matrix (rows = actual, cols = predicted):")
-    cm = confusion_matrix(y_test, predictions)
-    print(cm, "\n")
-
-    print("Classification Report:")
-    print(classification_report(y_test, predictions, target_names=target_names))
-
-    f1 = f1_score(y_test, predictions, average="weighted")
+    
     acc = accuracy_score(y_test, predictions)
-    print(f"Overall Accuracy: {acc:.4f}")
-    print(f"Weighted F1 Score: {f1:.4f}")
-
+    f1 = f1_score(y_test, predictions, average="weighted")
+    print(f"KNN Accuracy: {acc:.4f} | Weighted F1: {f1:.4f}")
+    
+    # Save Confusion Matrix Heatmap
+    cm = confusion_matrix(y_test, predictions)
+    plt.figure(figsize=(6, 4))
+    sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', xticklabels=target_names, yticklabels=target_names)
+    plt.title(f'KNN Confusion Matrix (K={k})')
+    plt.xlabel('Predicted Label')
+    plt.ylabel('True Label')
+    plt.savefig('confusion_matrix.png')
+    plt.close()
+    print("-> Saved 'confusion_matrix.png'")
+    
     return model
 
 
-def predict_new_sample(model, scaler, target_names, sample):
-    """
-    Bonus: classify a brand-new, unseen flower measurement — the whole
-    point of a trained model (Output slide: 'make new decisions').
-    sample = [sepal_length, sepal_width, petal_length, petal_width] in cm
-    """
+def train_and_evaluate_tree(X_train, X_test, y_train, y_test):
+    """Compare KNN against a Decision Tree Classifier."""
+    print("\n--- Training Decision Tree (Comparison) ---")
+    tree = DecisionTreeClassifier(random_state=42)
+    tree.fit(X_train, y_train)
+    predictions = tree.predict(X_test)
+    
+    acc = accuracy_score(y_test, predictions)
+    f1 = f1_score(y_test, predictions, average="weighted")
+    print(f"Decision Tree Accuracy: {acc:.4f} | Weighted F1: {f1:.4f}")
+    return tree
+
+
+def save_artifacts(model, scaler):
+    """Save the trained model and scaler to disk."""
+    joblib.dump(model, 'knn_model.pkl')
+    joblib.dump(scaler, 'scaler.pkl')
+    print("\n-> Saved 'knn_model.pkl' and 'scaler.pkl' to disk.")
+
+
+def predict_new_sample(target_names, sample):
+    """Load artifacts and predict safely with input validation."""
+    if not isinstance(sample, list) or len(sample) != 4:
+        raise ValueError("Invalid Input: Sample must be a list of exactly 4 numerical measurements.")
+        
+    try:
+        model = joblib.load('knn_model.pkl')
+        scaler = joblib.load('scaler.pkl')
+    except FileNotFoundError:
+        print("Error: Model or scaler files not found. Train them first.")
+        return
+
     sample_scaled = scaler.transform([sample])
     prediction = model.predict(sample_scaled)[0]
-    print(f"\nNew sample {sample} -> predicted class: {target_names[prediction]}")
+    print(f"\nInference on {sample} -> Predicted Class: {target_names[prediction]}")
 
 
 if __name__ == "__main__":
+    import warnings
+    warnings.filterwarnings("ignore") # hide minor warnings for clean output
+    
     X, y, target_names = load_data()
     X_train, X_test, y_train, y_test, scaler = split_and_scale(X, y)
-
-    # Explore K values first (educational — shows why K=5 is a reasonable default)
-    best_k = find_best_k(X_train, y_train, X_test, y_test)
-
-    # Train final model and evaluate properly
-    model = train_and_evaluate(X_train, X_test, y_train, y_test, target_names, k=best_k)
-
-    # Try it on a new, made-up flower measurement
-    predict_new_sample(model, scaler, target_names, [5.0, 3.4, 1.5, 0.2])
+    
+    # 1. Hyperparameter tuning with CV + Visualization
+    best_k = find_best_k_cv(X_train, y_train)
+    
+    # 2. Train final KNN and plot confusion matrix
+    knn_model = train_and_evaluate_knn(X_train, X_test, y_train, y_test, target_names, best_k)
+    
+    # 3. Compare with Decision Tree
+    train_and_evaluate_tree(X_train, X_test, y_train, y_test)
+    
+    # 4. Serialize Model
+    save_artifacts(knn_model, scaler)
+    
+    # 5. Safe Inference
+    predict_new_sample(target_names, [5.0, 3.4, 1.5, 0.2])
+    
+    # Example of invalid input handling
+    try:
+        predict_new_sample(target_names, [5.0, 3.4])
+    except ValueError as e:
+        print(f"\nCaught Exception intentionally: {e}")
