@@ -1,72 +1,84 @@
 """
-Project 1: Rule-Based AI Chatbot
+Project 1: Rule-Based AI Chatbot (Advanced Version)
 DecodeLabs — Industrial Training Kit (Batch 2026)
 
-Goal: A simple rule-based chatbot that responds to predefined user inputs
-using if-else / dictionary lookup logic, running in a continuous loop.
-
-Spec checklist (from the brief):
-  [x] INPUT LOOP      -> continuous while cycle
-  [x] SANITIZATION    -> handle case & whitespace (.lower().strip())
-  [x] KNOWLEDGE BASE  -> dictionary with 5+ intents
-  [x] FALLBACK        -> default response for unknowns (dict.get())
-  [x] EXIT STRATEGY   -> clean break command
+Goal: A rule-based chatbot featuring OOP, fuzzy matching, keyword matching,
+randomized responses, and robust sanitization.
 """
 
-# ---------------------------------------------------------------
-# PHASE 0: Knowledge Base
-# Dictionary lookup = O(1) constant time, unlike an if-elif ladder
-# which grows O(n) as you add more rules. This is the "Pivot to
-# Hash Maps" the slides talk about.
-# ---------------------------------------------------------------
-responses = {
-    "hello": "Hi there! How can I help you today?",
-    "hi": "Hey! What's up?",
-    "how are you": "I'm just a bunch of if-else logic, but I'm doing great!",
-    "what is your name": "I'm RuleBot, DecodeLabs' Project 1 chatbot.",
-    "what can you do": "Right now I can only respond to a few fixed phrases — "
-                        "no learning, just pure logic.",
-    "help": "Try greeting me, asking my name, or how I'm doing. Type 'exit' to quit.",
-    "thank you": "You're welcome!",
-    "thanks": "Anytime!",
-}
+import string
+import random
+import difflib
 
-EXIT_COMMANDS = {"exit", "quit", "bye", "goodbye"}
+class RuleBot:
+    def __init__(self):
+        # Intents mapped to lists of possible responses for variety
+        self.exact_responses = {
+            "hello": ["Hi there! How can I help you today?", "Hello! What's on your mind?", "Greetings!"],
+            "hi": ["Hey! What's up?", "Hi!", "Hello there!"],
+            "thank you": ["You're welcome!", "Glad to help!", "Anytime!"],
+            "thanks": ["Anytime!", "No problem!", "You got it!"],
+            "help": ["Try greeting me, asking my name, or how I'm doing. Type 'exit' to quit."]
+        }
+        
+        # Keyword tuple mapped to list of responses
+        self.keyword_responses = {
+            ("how", "are", "you"): ["I'm just a bunch of if-else logic, but I'm doing great!", "Doing well, thanks!"],
+            ("what", "is", "name"): ["I'm RuleBot, DecodeLabs' Project 1 chatbot.", "They call me RuleBot."],
+            ("what", "can", "do"): ["Right now I can only respond to a few fixed phrases — no learning, just pure logic."]
+        }
 
+        self.exit_commands = {"exit", "quit", "bye", "goodbye"}
 
-def get_response(user_input: str) -> str:
-    """
-    Look up a cleaned user input in the knowledge base.
-    Uses dict.get() for an atomic lookup + fallback in one line,
-    instead of a long if-elif chain.
-    """
-    return responses.get(user_input, "I do not understand that yet. Type 'help' for options.")
+    def sanitize_input(self, text: str) -> str:
+        """Lowercases, strips whitespace, and removes punctuation."""
+        clean_text = text.lower().strip()
+        return clean_text.translate(str.maketrans('', '', string.punctuation))
 
+    def get_response(self, user_input: str) -> str:
+        """Pipeline: Exact Match -> Fuzzy Match -> Keyword Match -> Fallback"""
+        # 1. Try an exact match first
+        if user_input in self.exact_responses:
+            return random.choice(self.exact_responses[user_input])
+        
+        # 2. Try Fuzzy Matching for exact intents (handles typos)
+        close_matches = difflib.get_close_matches(user_input, self.exact_responses.keys(), n=1, cutoff=0.7)
+        if close_matches:
+            best_match = close_matches[0]
+            return random.choice(self.exact_responses[best_match])
 
-def run_chatbot():
-    print("RuleBot: Hello! I'm a rule-based chatbot. Type 'exit' to leave anytime.\n")
+        # 3. Try Keyword Matching
+        words = set(user_input.split())
+        for keywords, replies in self.keyword_responses.items():
+            # If all keywords in a tuple are in the user's input
+            if all(kw in words for kw in keywords):
+                return random.choice(replies)
 
-    # ---------------------------------------------------------------
-    # PHASE 1: The Heartbeat — infinite loop until the kill command
-    # ---------------------------------------------------------------
-    while True:
-        raw_input_text = input("You: ")
+        # 4. Fallback
+        return "I do not understand that yet. Type 'help' for options."
 
-        # PHASE 1: Sanitization — normalize case & strip whitespace
-        clean_input = raw_input_text.lower().strip()
+    def run(self):
+        print("RuleBot: Hello! I'm an advanced rule-based chatbot. Type 'exit' to leave anytime.\n")
+        
+        while True:
+            raw_input_text = input("You: ")
+            clean_input = self.sanitize_input(raw_input_text)
+            
+            # Skip empty inputs
+            if not clean_input:
+                continue
+                
+            # Exit strategy
+            if clean_input in self.exit_commands:
+                bye_messages = ["Goodbye! 👋", "See ya!", "Catch you later!"]
+                print(f"RuleBot: {random.choice(bye_messages)}")
+                break
 
-        # Exit strategy — clean break out of the loop
-        if clean_input in EXIT_COMMANDS:
-            print("RuleBot: Goodbye! 👋")
-            break
-
-        # Skip empty input instead of matching it against the dict
-        if not clean_input:
-            continue
-
-        reply = get_response(clean_input)
-        print(f"RuleBot: {reply}")
+            # Fetch and print response
+            reply = self.get_response(clean_input)
+            print(f"RuleBot: {reply}")
 
 
 if __name__ == "__main__":
-    run_chatbot()
+    bot = RuleBot()
+    bot.run()
